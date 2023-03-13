@@ -187,7 +187,7 @@ function parseResponses(responses) {
     result = [].concat(allEvents, result);
   }
 
-  if (onlyFutureEvents) {
+  if (config.onlyFutureEvents) {
     result = result.filter(function (event) {
       try {
         if (
@@ -278,10 +278,8 @@ function processEvent(event, calendarTz) {
   } else {
     //------------------------ Send event object to gcal ------------------------
     if (needsUpdate) {
-      if (modifyExistingEvents) {
-        Logger.log(
-          "Updating existing event " + newEvent.extendedProperties.private["id"]
-        );
+      if (config.modifyExistingEvents) {
+        Logger.log(`Updating existing event => ${newEvent.summary}`);
         newEvent = callWithBackoff(function () {
           return Calendar.Events.update(
             newEvent,
@@ -297,10 +295,8 @@ function processEvent(event, calendarTz) {
         }
       }
     } else {
-      if (addEventsToCalendar) {
-        Logger.log(
-          "Adding new event " + newEvent.extendedProperties.private["id"]
-        );
+      if (config.addEventsToCalendar) {
+        Logger.log(`Adding new event => ${newEvent.summary}`);
         newEvent = callWithBackoff(function () {
           return Calendar.Events.insert(newEvent, targetCalendarId);
         }, defaultMaxRetries);
@@ -329,7 +325,34 @@ function processEvent(event, calendarTz) {
 function createEvent(event, calendarTz) {
   event.removeProperty("dtstamp");
   var icalEvent = new ICAL.Event(event, { strictExceptions: true });
-  if (onlyFutureEvents && checkSkipEvent(event, icalEvent)) {
+
+  const diffStart = Math.floor(
+    (icalEvent.startDate.toJSDate() - new Date()) / (1000 * 60 * 60 * 24)
+  );
+  const diffEnd = Math.floor(
+    (icalEvent.endDate.toJSDate() - new Date()) / (1000 * 60 * 60 * 24)
+  );
+
+  if (diffStart > futureDaysToSync) {
+    Logger.log(
+      `Ignoring ${diffStart} days future event => ${icalEvent.summary}`
+    );
+    return;
+  }
+
+  if (diffEnd < -1 * pastDaysToSync) {
+    Logger.log(
+      `Ignoring ${Math.abs(diffEnd)} days past event => ${icalEvent.summary}`
+    );
+    return;
+  }
+
+  if (icalEvent.summary.startsWith("Canceled: ")) {
+    Logger.log("Ignoring canceled event => " + icalEvent.summary);
+    return;
+  }
+
+  if (config.onlyFutureEvents && checkSkipEvent(event, icalEvent)) {
     return;
   }
 
@@ -660,7 +683,9 @@ function checkSkipEvent(event, icalEvent) {
             r.setValues(vals);
           }
         });
-        Logger.log("Adjusted RRule/RDate to exclude past instances");
+        Logger.log(
+          `Adjusted RRule/RDate to exclude past instances for ${icalEvent.summary}`
+        );
       } else {
         //All instances are in the past
         skip = true;
@@ -705,10 +730,7 @@ function checkSkipEvent(event, icalEvent) {
         icsEventsIds.indexOf(event.getFirstPropertyValue("uid").toString()),
         1
       );
-      Logger.log(
-        "Skipping past recurring event " +
-          event.getFirstPropertyValue("uid").toString()
-      );
+      Logger.log("Skipping past recurring event " + icalEvent.summary);
       return true;
     }
   } else {
@@ -718,10 +740,7 @@ function checkSkipEvent(event, icalEvent) {
         icsEventsIds.indexOf(event.getFirstPropertyValue("uid").toString()),
         1
       );
-      Logger.log(
-        "Skipping previous event " +
-          event.getFirstPropertyValue("uid").toString()
-      );
+      Logger.log("Skipping previous event " + icalEvent.summary);
       return true;
     }
   }
@@ -800,7 +819,7 @@ function processEventCleanup() {
     var feedIndex = icsEventsIds.indexOf(currentID);
 
     if (feedIndex == -1 && calendarEvents[i].recurringEventId == null) {
-      Logger.log("Deleting old event " + currentID);
+      Logger.log(`Deleting old event => ${calendarEvents[i].summary}`);
       callWithBackoff(function () {
         Calendar.Events.remove(targetCalendarId, calendarEvents[i].id);
       }, defaultMaxRetries);
@@ -876,7 +895,7 @@ function processTasks(responses) {
 
   //-------------- Remove old Tasks -----------
   // ID can't be used as identifier as the API reassignes a random id at task creation
-  if (removeEventsFromCalendar) {
+  if (config.removeEventsFromCalendar) {
     Logger.log("Checking " + existingTasksIds.length + " tasks for removal");
     for (var i = 0; i < existingTasksIds.length; i++) {
       var currentID = existingTasks[i].id;
