@@ -44,6 +44,7 @@ var addCalToTitle = false; // Whether to add the source calendar to title
 var addAttendees = false; // Whether to add the attendee list. If true, duplicate events will be automatically added to the attendees' calendar.
 var defaultAllDayReminder = 30; // Default reminder for all day events in minutes before the day of the event (-1 = no reminder, the value has to be between 0 and 40320)
 // See https://github.com/derekantrican/GAS-ICS-Sync/issues/75 for why this is neccessary.
+var overrideVisibility = "";           // Changes the visibility of the event ("default", "public", "private", "confidential"). Anything else will revert to the class value of the ICAL event.
 var emailSummary = false; // Will email you when an event is added/modified/removed to your calendar
 var email = ""; // OPTIONAL: If "emailSummary" is set to true or you want to receive update notifications, you will need to provide your email address
 
@@ -153,7 +154,8 @@ function startSync() {
     new Date().getTime()
   );
 
-  if (onlyFutureEvents) startUpdateTime = new ICAL.Time.fromJSDate(new Date());
+  if (config.onlyFutureEvents)
+    startUpdateTime = new ICAL.Time.fromJSDate(new Date());
 
   //Disable email notification if no mail adress is provided
   emailSummary = emailSummary && email != "";
@@ -175,8 +177,8 @@ function startSync() {
     calendarEventsMD5s = [];
     recurringEvents = [];
 
-    targetCalendarName = config.target;
-    var sourceCalendarURLs = [config.source];
+    targetCalendarName = calendar.target;
+    var sourceCalendarURLs = [[calendar.source, calendar.color]];
     var vevents;
 
     //------------------------ Fetch URL items ------------------------
